@@ -24,6 +24,7 @@ import {
   CheckCircle,
   DollarSign
 } from "lucide-react";
+import MapView from "@/components/Mapview"; // Leaflet map component
 
 interface DetailedLandParcelAnalysisProps {
   parcelId: string;
@@ -33,6 +34,8 @@ interface DetailedLandParcelAnalysisProps {
 export function DetailedLandParcelAnalysis({ parcelId, onBack }: DetailedLandParcelAnalysisProps) {
   const parcelData = {
     location: "Devanahalli North",
+    lat: 13.1986, // example latitude
+    lng: 77.7101, // example longitude
     surveyNo: "45/2, Devanahalli, Bangalore Rural District",
     scores: {
       las: 9.2,
@@ -163,17 +166,9 @@ export function DetailedLandParcelAnalysis({ parcelId, onBack }: DetailedLandPar
               <CardHeader>
                 <CardTitle className="text-lg">Bangalore Location Map</CardTitle>
               </CardHeader>
-              <CardContent>
-                <div className="aspect-square bg-muted rounded-lg flex items-center justify-center border-2 border-dashed border-border relative overflow-hidden">
-                  <div className="text-center">
-                    <MapPin className="h-12 w-12 mx-auto mb-4 text-primary" />
-                    <h3 className="font-bold text-lg mb-2">{parcelData.location}</h3>
-                    <div className="space-y-1 text-sm text-muted-foreground">
-                      <p>{parcelData.distances.airport.distance} to {parcelData.distances.airport.name}</p>
-                      <p>{parcelData.distances.prestige.distance} to {parcelData.distances.prestige.name}</p>
-                      <p>{parcelData.distances.businessPark.distance} to {parcelData.distances.businessPark.name}</p>
-                    </div>
-                  </div>
+              <CardContent className="p-0">
+                <div className="aspect-square rounded-lg overflow-hidden">
+                  <MapView lat={parcelData.lat} lng={parcelData.lng} />
                 </div>
               </CardContent>
             </Card>

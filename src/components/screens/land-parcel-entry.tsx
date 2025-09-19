@@ -7,6 +7,24 @@ import { Header } from "@/components/layout/header";
 import { MapPin, Link, Navigation } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
+import "leaflet/dist/leaflet.css";
+import L from "leaflet";
+
+// Marker icon
+const markerIcon = new L.Icon({
+  iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+});
+
+// Component to fly to the marker
+function FlyToMarker({ lat, lng }: { lat: number; lng: number }) {
+  const map = useMap();
+  map.flyTo([lat, lng], 15, { duration: 1.5 });
+  return null;
+}
+
 interface LandParcelEntryProps {
   onBack: () => void;
   onContinue: (data: { googleMapLink: string; latitude: string; longitude: string }) => void;
@@ -19,11 +37,8 @@ export function LandParcelEntry({ onBack, onContinue }: LandParcelEntryProps) {
   const [isExtracting, setIsExtracting] = useState(false);
 
   const extractCoordinates = (mapUrl: string) => {
-    // Simulate coordinate extraction from Google Maps URL
     setIsExtracting(true);
-    
     setTimeout(() => {
-      // Mock coordinate extraction
       if (mapUrl.includes("maps") || mapUrl.includes("google")) {
         setLatitude("12.9716");
         setLongitude("77.5946");
@@ -53,7 +68,7 @@ export function LandParcelEntry({ onBack, onContinue }: LandParcelEntryProps) {
   return (
     <div className="min-h-screen bg-background">
       <Header title="Enter Land Parcel Details" showBackButton onBack={onBack} />
-      
+
       <div className="container mx-auto px-4 py-8 max-w-4xl">
         <div className="grid lg:grid-cols-2 gap-8">
           {/* Input Form */}
@@ -94,10 +109,7 @@ export function LandParcelEntry({ onBack, onContinue }: LandParcelEntryProps) {
                     placeholder="Auto-extracted"
                     value={latitude}
                     onChange={(e) => setLatitude(e.target.value)}
-                    className={cn(
-                      "h-12",
-                      isExtracting && "animate-pulse"
-                    )}
+                    className={cn("h-12", isExtracting && "animate-pulse")}
                     disabled={isExtracting}
                   />
                 </div>
@@ -110,10 +122,7 @@ export function LandParcelEntry({ onBack, onContinue }: LandParcelEntryProps) {
                     placeholder="Auto-extracted"
                     value={longitude}
                     onChange={(e) => setLongitude(e.target.value)}
-                    className={cn(
-                      "h-12",
-                      isExtracting && "animate-pulse"
-                    )}
+                    className={cn("h-12", isExtracting && "animate-pulse")}
                     disabled={isExtracting}
                   />
                 </div>
@@ -135,7 +144,7 @@ export function LandParcelEntry({ onBack, onContinue }: LandParcelEntryProps) {
               )}
 
               {/* Continue Button */}
-              <Button 
+              <Button
                 onClick={handleContinue}
                 disabled={!isValid}
                 className="w-full h-12 primary-gradient shadow-button hover:shadow-glow disabled:opacity-50"
@@ -150,28 +159,36 @@ export function LandParcelEntry({ onBack, onContinue }: LandParcelEntryProps) {
             <CardHeader>
               <CardTitle className="text-lg">Live Map Preview</CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="aspect-square bg-muted rounded-lg flex items-center justify-center border-2 border-dashed border-border">
-                {isValid ? (
-                  <div className="text-center space-y-4">
-                    <div className="h-16 w-16 mx-auto rounded-full bg-primary/10 flex items-center justify-center">
-                      <MapPin className="h-8 w-8 text-primary" />
-                    </div>
-                    <div>
-                      <p className="font-medium text-foreground">Location Preview</p>
-                      <p className="text-sm text-muted-foreground">
-                        {latitude}, {longitude}
-                      </p>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="text-center text-muted-foreground">
-                    <MapPin className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                    <p>Map preview will appear here</p>
-                    <p className="text-sm">when you paste a Google Maps link</p>
-                  </div>
-                )}
-              </div>
+            <CardContent className="h-96">
+              {isValid ? (
+                <MapContainer
+                  center={[parseFloat(latitude), parseFloat(longitude)]}
+                  zoom={15}
+                  style={{ width: "100%", height: "100%" }}
+                  scrollWheelZoom={false}
+                >
+                  <TileLayer
+                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                    attribution='&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a>'
+                  />
+                  <Marker
+                    position={[parseFloat(latitude), parseFloat(longitude)]}
+                    icon={markerIcon}
+                  >
+                    <Popup>Main Land Parcel</Popup>
+                  </Marker>
+                  <FlyToMarker
+                    lat={parseFloat(latitude)}
+                    lng={parseFloat(longitude)}
+                  />
+                </MapContainer>
+              ) : (
+                <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
+                  <MapPin className="h-12 w-12 mb-2 opacity-50" />
+                  <p>Map preview will appear here</p>
+                  <p className="text-sm">when you paste a Google Maps link</p>
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
