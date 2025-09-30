@@ -18,11 +18,34 @@ const markerIcon = new L.Icon({
   iconAnchor: [12, 41],
 });
 
-// Component to fly to the marker
+// Fly to marker component
 function FlyToMarker({ lat, lng }: { lat: number; lng: number }) {
   const map = useMap();
   map.flyTo([lat, lng], 15, { duration: 1.5 });
   return null;
+}
+
+// Geocode address using OpenStreetMap Nominatim
+async function geocodeAddress(address: string) {
+  const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}`;
+  const res = await fetch(url);
+  const data = await res.json();
+  if (data && data.length > 0) {
+    return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+  }
+  return null;
+}
+
+// ✅ Resolve shortened Google Maps URLs via Vercel serverless function
+async function resolveGoogleMapsShortUrl(shortUrl: string) {
+  try {
+    const res = await fetch(`/api/resolve?url=${encodeURIComponent(shortUrl)}`);
+    const data = await res.json();
+    return data.finalUrl || shortUrl;
+  } catch (err) {
+    console.error("Failed to resolve short URL:", err);
+    return shortUrl;
+  }
 }
 
 interface LandParcelEntryProps {
@@ -36,22 +59,56 @@ export function LandParcelEntry({ onBack, onContinue }: LandParcelEntryProps) {
   const [longitude, setLongitude] = useState("");
   const [isExtracting, setIsExtracting] = useState(false);
 
-  const extractCoordinates = (mapUrl: string) => {
+  const extractCoordinates = async (mapUrl: string) => {
     setIsExtracting(true);
-    setTimeout(() => {
-      if (mapUrl.includes("maps") || mapUrl.includes("google")) {
-        setLatitude("12.9716");
-        setLongitude("77.5946");
+
+    try {
+      // 1️⃣ Resolve shortened URL via backend
+      if (mapUrl.includes("goo.gl") || mapUrl.includes("maps.app.goo.gl")) {
+        mapUrl = await resolveGoogleMapsShortUrl(mapUrl);
       }
+
+      let lat = "";
+      let lng = "";
+
+      // 2️⃣ Extract coordinates from @lat,lng anywhere in URL
+      const coordMatch = mapUrl.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
+      if (coordMatch) {
+        lat = coordMatch[1];
+        lng = coordMatch[2];
+      } else {
+        // 3️⃣ Fallback: extract address from /place/ or /dir/
+        let address = "";
+        const matchPlace = mapUrl.match(/\/place\/([^/?]+)/);
+        const matchDir = mapUrl.match(/\/dir\/[^/]+\/([^/?]+)/);
+
+        if (matchPlace) address = decodeURIComponent(matchPlace[1].replace(/\+/g, " "));
+        else if (matchDir) address = decodeURIComponent(matchDir[1].replace(/\+/g, " "));
+
+        if (address) {
+          const coords = await geocodeAddress(address);
+          if (coords) {
+            lat = coords.lat.toString();
+            lng = coords.lng.toString();
+          }
+        }
+      }
+
+      setLatitude(lat);
+      setLongitude(lng);
+    } catch (err) {
+      console.error("Failed to extract coordinates:", err);
+      setLatitude("");
+      setLongitude("");
+    } finally {
       setIsExtracting(false);
-    }, 1500);
+    }
   };
 
   const handleMapLinkChange = (value: string) => {
     setGoogleMapLink(value);
-    if (value.trim()) {
-      extractCoordinates(value);
-    } else {
+    if (value.trim()) extractCoordinates(value);
+    else {
       setLatitude("");
       setLongitude("");
     }

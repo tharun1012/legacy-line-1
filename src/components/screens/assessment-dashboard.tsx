@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Header } from "@/components/layout/header";
@@ -18,6 +19,7 @@ import {
   Home
 } from "lucide-react";
 
+// ----------------- TYPES -----------------
 interface AssessmentData {
   googleMapLink: string;
   latitude: string;
@@ -29,29 +31,125 @@ interface AssessmentDashboardProps {
   onBack: () => void;
 }
 
+interface NearbyPlace {
+  name: string;
+  type: string;
+  distance: string;
+}
+
+// ----------------- HELPERS -----------------
+
+// Fetch nearby places using Overpass API
+async function fetchNearby(lat: number, lng: number) {
+  const query = `
+    [out:json];
+    (
+      node(around:5000,${lat},${lng})[aeroway=aerodrome];    // Airports
+      node(around:5000,${lat},${lng})[amenity=bus_station];  // Bus Stations
+      node(around:5000,${lat},${lng})[amenity=school];       // Schools
+      node(around:5000,${lat},${lng})[shop=mall];            // Shopping Malls
+      way(around:5000,${lat},${lng})[natural=water];         // Water bodies
+    );
+    out center;
+  `;
+
+  const url = "https://overpass-api.de/api/interpreter?data=" + encodeURIComponent(query);
+  const res = await fetch(url);
+  const data = await res.json();
+  return data.elements || [];
+}
+
+// Calculate distance (Haversine formula)
+function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
+  const R = 6371; // km
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  return (R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))).toFixed(1) + " km";
+}
+
+// ----------------- MAIN COMPONENT -----------------
 export function AssessmentDashboard({ data, onBack }: AssessmentDashboardProps) {
-  const assessmentData = {
-    transportation: {
-      airport: { distance: "15 km", name: "Kempegowda International Airport" },
-      busStand: { distance: "3 km", name: "Electronic City Bus Terminal" }
-    },
-    builderProjects: [
-      { name: "Residential Complex", distance: "2km", type: "Residential" },
-      { name: "Shopping Mall", distance: "5km", type: "Commercial" },
-      { name: "School District", distance: "3km", type: "Educational" }
-    ],
-    infrastructure: {
-      roads: "Available",
-      power: "Connected",
-      water: "Municipal",
-      internet: "Fiber"
-    },
-    scores: {
-      las: 8.5,
-      vas: 7.8,
-      overall: 8.1
+  const [loading, setLoading] = useState(true);
+  const [transportation, setTransportation] = useState<any>({});
+  const [builderProjects, setBuilderProjects] = useState<NearbyPlace[]>([]);
+  const [infrastructure, setInfrastructure] = useState<any>({
+    roads: "Available",
+    power: "Connected",
+    water: "Municipal",
+    internet: "Fiber"
+  });
+
+  const [scores, setScores] = useState({
+    las: 0,
+    vas: 0,
+    overall: 0
+  });
+
+  useEffect(() => {
+    const lat = parseFloat(data.latitude);
+    const lng = parseFloat(data.longitude);
+
+    async function load() {
+      setLoading(true);
+      const results = await fetchNearby(lat, lng);
+
+      // Find specific categories
+      const airport = results.find((r: any) => r.tags?.aeroway === "aerodrome");
+      const busStation = results.find((r: any) => r.tags?.amenity === "bus_station");
+
+      setTransportation({
+        airport: airport
+          ? {
+              name: airport.tags.name || "Unnamed Airport",
+              distance: calculateDistance(lat, lng, airport.lat || airport.center.lat, airport.lon || airport.center.lon)
+            }
+          : { name: "No airport nearby", distance: "-" },
+        busStand: busStation
+          ? {
+              name: busStation.tags.name || "Bus Station",
+              distance: calculateDistance(lat, lng, busStation.lat, busStation.lon)
+            }
+          : { name: "No bus station nearby", distance: "-" }
+      });
+
+      // Builder projects = Schools, Malls, etc
+      const projects: NearbyPlace[] = results
+        .filter((r: any) => r.tags?.amenity === "school" || r.tags?.shop === "mall" || r.tags?.natural === "water")
+        .map((r: any) => {
+          const type =
+            r.tags.amenity === "school"
+              ? "Educational"
+              : r.tags.shop === "mall"
+              ? "Commercial"
+              : "Water Body";
+          return {
+            name: r.tags.name || type,
+            type,
+            distance: calculateDistance(lat, lng, r.lat || r.center.lat, r.lon || r.center.lon)
+          };
+        });
+
+      setBuilderProjects(projects);
+
+      // Simple scoring logic (can be improved)
+      const lasScore = Math.min(10, projects.length * 2);
+      const vasScore = Math.min(10, results.length / 5);
+      const overall = ((lasScore + vasScore) / 2).toFixed(1);
+
+      setScores({ las: lasScore, vas: vasScore, overall: parseFloat(overall) });
+      setLoading(false);
     }
-  };
+
+    load();
+  }, [data]);
+
+  if (loading) return <p className="p-6 text-center">Loading assessment results...</p>;
 
   return (
     <div className="min-h-screen bg-background">
@@ -71,7 +169,7 @@ export function AssessmentDashboard({ data, onBack }: AssessmentDashboardProps) 
               </p>
             </div>
             <div className="flex items-center gap-3">
-              <ScoreBadge score={assessmentData.scores.overall} label="Overall Score" size="lg" />
+              <ScoreBadge score={scores.overall} label="Overall Score" size="lg" />
               <Button variant="outline" className="gap-2">
                 <Share2 className="h-4 w-4" />
                 Share Assessment
@@ -99,20 +197,20 @@ export function AssessmentDashboard({ data, onBack }: AssessmentDashboardProps) 
                 <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
                   <div className="flex items-center gap-3">
                     <Plane className="h-4 w-4 text-primary" />
-                    <span className="text-sm font-medium">Nearest Airport</span>
+                    <span className="text-sm font-medium">{transportation.airport.name}</span>
                   </div>
                   <span className="text-sm font-semibold text-primary">
-                    {assessmentData.transportation.airport.distance}
+                    {transportation.airport.distance}
                   </span>
                 </div>
                 
                 <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
                   <div className="flex items-center gap-3">
                     <Bus className="h-4 w-4 text-success" />
-                    <span className="text-sm font-medium">Bus Stand</span>
+                    <span className="text-sm font-medium">{transportation.busStand.name}</span>
                   </div>
                   <span className="text-sm font-semibold text-success">
-                    {assessmentData.transportation.busStand.distance}
+                    {transportation.busStand.distance}
                   </span>
                 </div>
               </div>
@@ -133,9 +231,9 @@ export function AssessmentDashboard({ data, onBack }: AssessmentDashboardProps) 
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-3">
-                {assessmentData.builderProjects.map((project, index) => {
-                  const icons = [Home, ShoppingCart, School];
-                  const Icon = icons[index];
+                {builderProjects.map((project, index) => {
+                  const icons = { Educational: School, Commercial: ShoppingCart, "Water Body": Droplets };
+                  const Icon = icons[project.type as keyof typeof icons] || Home;
                   return (
                     <div key={index} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
                       <div className="flex items-center gap-3">
@@ -175,7 +273,7 @@ export function AssessmentDashboard({ data, onBack }: AssessmentDashboardProps) 
                     <span className="text-sm font-medium">Roads</span>
                   </div>
                   <span className="text-sm font-semibold text-success">
-                    {assessmentData.infrastructure.roads}
+                    {infrastructure.roads}
                   </span>
                 </div>
                 
@@ -185,7 +283,7 @@ export function AssessmentDashboard({ data, onBack }: AssessmentDashboardProps) 
                     <span className="text-sm font-medium">Power</span>
                   </div>
                   <span className="text-sm font-semibold text-success">
-                    {assessmentData.infrastructure.power}
+                    {infrastructure.power}
                   </span>
                 </div>
                 
@@ -195,7 +293,7 @@ export function AssessmentDashboard({ data, onBack }: AssessmentDashboardProps) 
                     <span className="text-sm font-medium">Water</span>
                   </div>
                   <span className="text-sm font-semibold text-success">
-                    {assessmentData.infrastructure.water}
+                    {infrastructure.water}
                   </span>
                 </div>
                 
@@ -205,7 +303,7 @@ export function AssessmentDashboard({ data, onBack }: AssessmentDashboardProps) 
                     <span className="text-sm font-medium">Internet</span>
                   </div>
                   <span className="text-sm font-semibold text-success">
-                    {assessmentData.infrastructure.internet}
+                    {infrastructure.internet}
                   </span>
                 </div>
               </div>
@@ -226,7 +324,7 @@ export function AssessmentDashboard({ data, onBack }: AssessmentDashboardProps) 
             <div className="grid md:grid-cols-3 gap-6">
               <div className="text-center p-6 bg-muted/30 rounded-lg">
                 <h3 className="font-semibold mb-2">LAS (Land Assessment Score)</h3>
-                <ScoreBadge score={assessmentData.scores.las} size="lg" className="mb-3" />
+                <ScoreBadge score={scores.las} size="lg" className="mb-3" />
                 <p className="text-sm text-muted-foreground">
                   Location quality, infrastructure, connectivity, and future development potential
                 </p>
@@ -234,7 +332,7 @@ export function AssessmentDashboard({ data, onBack }: AssessmentDashboardProps) 
               
               <div className="text-center p-6 bg-muted/30 rounded-lg">
                 <h3 className="font-semibold mb-2">VAS (Value Assessment Score)</h3>
-                <ScoreBadge score={assessmentData.scores.vas} size="lg" className="mb-3" />
+                <ScoreBadge score={scores.vas} size="lg" className="mb-3" />
                 <p className="text-sm text-muted-foreground">
                   Investment value, cost-benefit ratio, market appreciation potential
                 </p>
@@ -242,7 +340,7 @@ export function AssessmentDashboard({ data, onBack }: AssessmentDashboardProps) 
               
               <div className="text-center p-6 bg-muted/30 rounded-lg">
                 <h3 className="font-semibold mb-2">Overall Score</h3>
-                <ScoreBadge score={assessmentData.scores.overall} size="lg" className="mb-3" />
+                <ScoreBadge score={scores.overall} size="lg" className="mb-3" />
                 <p className="text-sm text-muted-foreground">
                   Comprehensive evaluation combining all factors
                 </p>
