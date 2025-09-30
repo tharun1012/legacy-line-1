@@ -1,6 +1,5 @@
 import fetch from "node-fetch";
 
-// Use `any` for request/response types
 export default async function handler(req: any, res: any) {
   const { url } = req.query;
 
