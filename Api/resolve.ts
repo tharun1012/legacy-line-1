@@ -8,8 +8,8 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    // Follow redirects to get the final URL
-    const response = await fetch(url, { method: "HEAD", redirect: "follow" });
+    // Use GET to reliably follow redirects for Google Maps short links
+    const response = await fetch(url, { method: "GET", redirect: "follow" });
     return res.status(200).json({ finalUrl: response.url });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });

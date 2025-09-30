@@ -71,7 +71,7 @@ export function LandParcelEntry({ onBack, onContinue }: LandParcelEntryProps) {
       let lat = "";
       let lng = "";
 
-      // 2️⃣ Extract coordinates from @lat,lng anywhere in URL
+      // 2️⃣ Extract coordinates from @lat,lng in URL
       const coordMatch = mapUrl.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
       if (coordMatch) {
         lat = coordMatch[1];
@@ -234,10 +234,7 @@ export function LandParcelEntry({ onBack, onContinue }: LandParcelEntryProps) {
                   >
                     <Popup>Main Land Parcel</Popup>
                   </Marker>
-                  <FlyToMarker
-                    lat={parseFloat(latitude)}
-                    lng={parseFloat(longitude)}
-                  />
+                  <FlyToMarker lat={parseFloat(latitude)} lng={parseFloat(longitude)} />
                 </MapContainer>
               ) : (
                 <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
