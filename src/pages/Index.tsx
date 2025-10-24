@@ -2,7 +2,7 @@ import { useState } from "react";
 import { MainNavigation } from "@/components/screens/main-navigation";
 import { LandParcelEntry } from "@/components/screens/land-parcel-entry";
 import { AssessmentDashboard } from "@/components/screens/assessment-dashboard";
-import { LandParcelDiscovery } from "@/components/screens/land-parcel-discovery";
+import LandParcelDiscovery from "@/components/screens/land-parcel-discovery";
 import { FilteredLandParcels } from "@/components/screens/filtered-land-parcels";
 import { DetailedLandParcelAnalysis } from "@/components/screens/detailed-land-parcel-analysis";
 

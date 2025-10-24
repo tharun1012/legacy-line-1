@@ -1,9 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { MapPin, Building2, Zap, TrendingUp, Star, Search, ArrowLeft } from "lucide-react";
+import { supabase } from "@/Supabase/supabaseclient";
 
 interface LandParcelDiscoveryProps {
   onBack?: () => void;
@@ -11,63 +12,23 @@ interface LandParcelDiscoveryProps {
 }
 
 export default function LandParcelDiscovery({ onBack, onDiscover }: LandParcelDiscoveryProps) {
-  const [view, setView] = useState<"places" | "filters">("places");
-  
-  const [allPlaces] = useState<any[]>([
-    { name: "Indiranagar", latitude: 12.9719, longitude: 77.6412 },
-    { name: "JP Nagar", latitude: 12.9082, longitude: 77.5855 },
-    { name: "Whitefield", latitude: 12.9698, longitude: 77.7499 },
-    { name: "Sarjapur", latitude: 12.8813, longitude: 77.7612 },
-    { name: "Electronic City", latitude: 12.8451, longitude: 77.6602 },
-    { name: "Koramangala", latitude: 12.9352, longitude: 77.6245 },
-    { name: "Devanahalli", latitude: 13.2426, longitude: 77.7085 },
-    { name: "Marathahalli", latitude: 12.9591, longitude: 77.6974 },
-    { name: "Mahadevapura", latitude: 12.9897, longitude: 77.6978 },
-    { name: "Hebbal", latitude: 13.0358, longitude: 77.597 },
-    { name: "Yelahanka", latitude: 13.1007, longitude: 77.5963 },
-    { name: "HSR Layout", latitude: 12.9121, longitude: 77.6446 },
-    { name: "BTM Layout", latitude: 12.9165, longitude: 77.6101 },
-    { name: "Jayanagar", latitude: 12.925, longitude: 77.5838 },
-    { name: "Banashankari", latitude: 12.925, longitude: 77.5487 },
-    { name: "Malleshwaram", latitude: 13.0038, longitude: 77.5703 },
-    { name: "Rajajinagar", latitude: 12.9915, longitude: 77.5528 },
-    { name: "Vijayanagar", latitude: 12.9716, longitude: 77.5344 },
-    { name: "Basavanagudi", latitude: 12.9423, longitude: 77.5738 },
-    { name: "Bellandur", latitude: 12.9259, longitude: 77.6789 },
-    { name: "Bannerghatta", latitude: 12.8004, longitude: 77.5773 },
-    { name: "Basaveshwara Nagar", latitude: 12.9886, longitude: 77.5406 },
-    { name: "Benson Town", latitude: 13.0097, longitude: 77.6084 },
-    { name: "Shantinagar", latitude: 12.9698, longitude: 77.6043 },
-    { name: "Seshadripuram", latitude: 12.9899, longitude: 77.5767 },
-    { name: "Yeshwanthpur", latitude: 13.0285, longitude: 77.5389 },
-  ]);
 
+  const [view, setView] = useState<"places" | "filters" | "completed">("places");
+  const [allPlaces, setAllPlaces] = useState<any[]>([]);
   const [filteredPlaces, setFilteredPlaces] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
-  
-  const [allTownshipData] = useState<any[]>([
-    { name: "Adarsh Savana", latitude: 12.9719, longitude: 77.6412 },
-    { name: "Adithya Homes Paradise", latitude: 12.9720, longitude: 77.6420 },
-    { name: "Ajmal Flora Valley", latitude: 12.9710, longitude: 77.6400 },
-    { name: "Arvind Lakeview", latitude: 12.9730, longitude: 77.6430 },
-    { name: "Arvind The Park", latitude: 12.9700, longitude: 77.6390 },
-    { name: "Assetz The Secret Lake", latitude: 12.9690, longitude: 77.6380 },
-    { name: "BDA Layout", latitude: 12.9740, longitude: 77.6440 },
-  ]);
-  
-  const [news] = useState<string[]>([
-    "South City Commissioner directs scrutiny of property tax declarations of large multi-storey buildings",
-    "33k property owners in Bengaluru to get power, water connections",
-    "Bengaluru real estate operator murder: Police search properties of businessman linked to key accused",
-    "Bengaluru resident shares costly findings",
-  ]);
-
+  const [allTownshipData, setAllTownshipData] = useState<any[]>([]);
+  const [news, setNews] = useState<string[]>([]);
   const [selectedPlace, setSelectedPlace] = useState<any>(null);
   const [selectedTownships, setSelectedTownships] = useState<string[]>([]);
   const [selectedInfrastructure, setSelectedInfrastructure] = useState<string[]>([]);
   const [selectedNews, setSelectedNews] = useState<string[]>([]);
   const [selectedAds, setSelectedAds] = useState<string[]>([]);
-  const [isApplying, setIsApplying] = useState(false);
+  const [nearbyTownships, setNearbyTownships] = useState<any[]>([]);
+
+  // Prevent useEffect from running twice in dev (React.StrictMode)
+  const fetchedRef = useRef(false);
+  const filtersAppliedRef = useRef(false);
 
   const infrastructure = [
     "Roads",
@@ -89,26 +50,133 @@ export default function LandParcelDiscovery({ onBack, onDiscover }: LandParcelDi
     "Ready to Construct Land",
   ];
 
+  const bangaloreLocations = [
+    { name: "Indiranagar", latitude: 12.9719, longitude: 77.6412 },
+    { name: "JP Nagar", latitude: 12.9082, longitude: 77.5855 },
+    { name: "Whitefield", latitude: 12.9698, longitude: 77.7499 },
+    { name: "Sarjapur", latitude: 12.8813, longitude: 77.7612 },
+    { name: "Electronic City", latitude: 12.8451, longitude: 77.6602 },
+    { name: "Koramangala", latitude: 12.9352, longitude: 77.6245 },
+    { name: "Devanahalli", latitude: 13.2426, longitude: 77.7085 },
+    { name: "Marathahalli", latitude: 12.9591, longitude: 77.6974 },
+    { name: "Mahadevapura", latitude: 12.9897, longitude: 77.6978 },
+    { name: "Hebbal", latitude: 13.0358, longitude: 77.597 },
+    { name: "Yelahanka", latitude: 13.1007, longitude: 77.5963 },
+    { name: "HSR Layout", latitude: 12.9121, longitude: 77.6446 },
+    { name: "BTM Layout", latitude: 12.9165, longitude: 77.6101 },
+    { name: "Jayanagar", latitude: 12.925, longitude: 77.5838 },
+    { name: "Banashankari", latitude: 12.925, longitude: 77.5487 },
+    { name: "Malleshwaram", latitude: 13.0038, longitude: 77.5703 },
+    { name: "Rajajinagar", latitude: 12.9915, longitude: 77.5528 },
+    { name: "Vijayanagar", latitude: 12.9716, longitude: 77.5344 },
+    { name: "Basavanagudi", latitude: 12.9423, longitude: 77.5738 },
+  ];
+
   useEffect(() => {
-    setFilteredPlaces(allPlaces);
-  }, [allPlaces]);
+    setAllPlaces(bangaloreLocations);
+    setFilteredPlaces(bangaloreLocations);
+  }, []);
+
+  useEffect(() => {
+    if (fetchedRef.current) return;
+    fetchedRef.current = true;
+
+    const fetchData = async () => {
+      try {
+        const { data: landData, error: landError } = await supabase
+          .from("landdetails")
+          .select("property_name, latitude, longitude");
+
+        if (!landError && landData) {
+          const validTownships = landData
+            .filter(
+              (item) =>
+                item.property_name &&
+                item.property_name.trim() !== "" &&
+                item.latitude &&
+                item.longitude
+            )
+            .map((item) => ({
+              name: item.property_name,
+              latitude: parseFloat(item.latitude),
+              longitude: parseFloat(item.longitude),
+            }));
+
+          setAllTownshipData(validTownships);
+        }
+
+        const { data: newsData, error: newsError } = await supabase
+          .from("bangalore_news")
+          .select("headline");
+
+        if (!newsError && newsData) {
+          const uniqueNews = Array.from(
+            new Set(
+              newsData
+                .map((n) => n.headline)
+                .filter((headline) => headline && headline.trim() !== "")
+            )
+          );
+          setNews(uniqueNews);
+        }
+      } catch (err) {
+        console.error("Error fetching data:", err);
+      }
+    };
+
+    fetchData();
+  }, []);
 
   const handleSearchChange = (e: any) => {
     const query = e.target.value;
     setSearchQuery(query);
-    if (query.trim() === "") {
-      setFilteredPlaces(allPlaces);
-    } else {
+    if (query.trim() === "") setFilteredPlaces(allPlaces);
+    else
       setFilteredPlaces(
         allPlaces.filter((p) =>
           p.name.toLowerCase().includes(query.toLowerCase())
         )
       );
-    }
+  };
+
+  const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+    const R = 6371;
+    const dLat = ((lat2 - lat1) * Math.PI) / 180;
+    const dLon = ((lon2 - lon1) * Math.PI) / 180;
+    const a =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos((lat1 * Math.PI) / 180) *
+        Math.cos((lat2 * Math.PI) / 180) *
+        Math.sin(dLon / 2) ** 2;
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
   };
 
   const handlePlaceSelect = (place: any) => {
     setSelectedPlace(place);
+    setSelectedTownships([]);
+    setSelectedInfrastructure([]);
+    setSelectedNews([]);
+    setSelectedAds([]);
+
+    const nearby = allTownshipData
+      .map((township) => ({
+        ...township,
+        distance: calculateDistance(
+          place.latitude,
+          place.longitude,
+          township.latitude,
+          township.longitude
+        ),
+      }))
+      .filter((township) => township.distance <= 50)
+      .sort((a, b) => a.distance - b.distance);
+
+    const uniqueNearby = Array.from(
+      new Map(nearby.map((t) => [t.name, t])).values()
+    );
+
+    setNearbyTownships(uniqueNearby);
     setView("filters");
   };
 
@@ -120,9 +188,10 @@ export default function LandParcelDiscovery({ onBack, onDiscover }: LandParcelDi
     );
   };
 
-  const handleApplyFilters = () => {
-    if (isApplying) return;
-    setIsApplying(true);
+  const handleApplyFilters = async () => {
+    // Prevent multiple submissions
+    if (filtersAppliedRef.current) return;
+    filtersAppliedRef.current = true;
 
     const filters = {
       place: selectedPlace?.name,
@@ -132,6 +201,17 @@ export default function LandParcelDiscovery({ onBack, onDiscover }: LandParcelDi
       ads: selectedAds,
     };
 
+    try {
+      const { error } = await supabase.from("land_discoveries").insert([filters]);
+      if (error) console.error("Error saving filters:", error);
+    } catch (err) {
+      console.error("Error saving filters:", err);
+    }
+
+    // Set view to completed to prevent re-rendering the filter selection
+    setView("completed");
+    
+    // Call the parent's onDiscover callback
     if (onDiscover) {
       onDiscover(filters);
     }
@@ -139,10 +219,23 @@ export default function LandParcelDiscovery({ onBack, onDiscover }: LandParcelDi
 
   const handleBackToPlaces = () => {
     setView("places");
-    setIsApplying(false);
+    setSelectedPlace(null);
+    filtersAppliedRef.current = false;
   };
 
-  // FILTERS VIEW
+  // ---------- COMPLETED VIEW (Hidden - just prevents re-render) ----------
+  if (view === "completed") {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-slate-600">Loading results...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // ---------- FILTERS VIEW ----------
   if (view === "filters") {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
@@ -170,10 +263,10 @@ export default function LandParcelDiscovery({ onBack, onDiscover }: LandParcelDi
               title="Townships"
               icon={<Building2 className="w-5 h-5 text-blue-600" />}
               color="blue"
-              data={allTownshipData.map((t) => t.name)}
+              data={nearbyTownships.map((t) => t.name)}
               selected={selectedTownships}
               toggle={(v: string) => toggleSelection(selectedTownships, setSelectedTownships, v)}
-              emptyText="No townships available"
+              emptyText="No townships found nearby"
             />
 
             {/* Infrastructure */}
@@ -217,10 +310,10 @@ export default function LandParcelDiscovery({ onBack, onDiscover }: LandParcelDi
             <Button
               onClick={handleApplyFilters}
               size="lg"
-              disabled={isApplying}
+              disabled={filtersAppliedRef.current}
               className="bg-blue-600 hover:bg-blue-700 text-white px-12 disabled:opacity-50"
             >
-              {isApplying ? "Processing..." : "Apply Filters & Search"}
+              {filtersAppliedRef.current ? "Processing..." : "Apply Filters & Discover"}
             </Button>
           </div>
         </div>
@@ -228,7 +321,7 @@ export default function LandParcelDiscovery({ onBack, onDiscover }: LandParcelDi
     );
   }
 
-  // PLACES VIEW (Second Screenshot)
+  // ---------- PLACES VIEW ----------
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
       <header className="bg-white shadow-sm border-b">
@@ -242,6 +335,11 @@ export default function LandParcelDiscovery({ onBack, onDiscover }: LandParcelDi
       </header>
 
       <div className="container mx-auto px-4 py-8 max-w-7xl">
+        <h1 className="text-3xl font-bold text-slate-800 mb-2">Select Your Area</h1>
+        <p className="text-slate-600 mb-6">
+          Choose the Bangalore location where you want to find land parcels
+        </p>
+
         <div className="relative mb-6">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 w-5 h-5" />
           <Input
@@ -251,11 +349,10 @@ export default function LandParcelDiscovery({ onBack, onDiscover }: LandParcelDi
             onChange={handleSearchChange}
             className="pl-10 py-6 text-lg"
           />
+          <p className="text-slate-500 text-sm mt-2">
+            Found {filteredPlaces.length} locations
+          </p>
         </div>
-
-        <p className="text-slate-500 text-sm mb-6">
-          Found {filteredPlaces.length} locations
-        </p>
 
         <div className="grid md:grid-cols-3 gap-4">
           {filteredPlaces.map((place) => (
@@ -297,35 +394,15 @@ function FilterCard({
   toggle: (v: string) => void;
   emptyText?: string;
 }) {
-  const getBorderColor = () => {
-    if (selected.length === 0) return "border-slate-200";
-    switch(color) {
-      case "blue": return "border-blue-500 ring-2 ring-blue-200";
-      case "emerald": return "border-emerald-500 ring-2 ring-emerald-200";
-      case "amber": return "border-amber-500 ring-2 ring-amber-200";
-      case "purple": return "border-purple-500 ring-2 ring-purple-200";
-      default: return "border-slate-200";
-    }
-  };
-
-  const getBadgeColor = () => {
-    switch(color) {
-      case "blue": return "bg-blue-600 text-white";
-      case "emerald": return "bg-emerald-600 text-white";
-      case "amber": return "bg-amber-600 text-white";
-      case "purple": return "bg-purple-600 text-white";
-      default: return "bg-slate-600 text-white";
-    }
-  };
-
+  const borderColor = selected.length > 0 ? `border-${color}-500 ring-2 ring-${color}-200` : "border-slate-200";
   return (
-    <Card className={`shadow-lg rounded-xl border-2 transition-all ${getBorderColor()}`}>
+    <Card className={`shadow-lg rounded-xl border-2 transition-all ${borderColor}`}>
       <CardHeader className="pb-3">
         <CardTitle className="text-lg flex items-center gap-2 font-semibold text-slate-800">
           {icon}
           {title}
           {selected.length > 0 && (
-            <Badge className={`${getBadgeColor()} ml-auto`}>
+            <Badge className={`bg-${color}-600 text-white ml-auto`}>
               {selected.length}
             </Badge>
           )}
