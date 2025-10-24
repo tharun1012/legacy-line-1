@@ -6,111 +6,125 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Header } from "@/components/layout/header";
 import { MapPin, Link, Navigation } from "lucide-react";
 import { cn } from "@/lib/utils";
-
-import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
-import "leaflet/dist/leaflet.css";
-import L from "leaflet";
-
-// Marker icon
-const markerIcon = new L.Icon({
-  iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-});
-
-// Fly to marker component
-function FlyToMarker({ lat, lng }: { lat: number; lng: number }) {
-  const map = useMap();
-  map.flyTo([lat, lng], 15, { duration: 1.5 });
-  return null;
-}
-
-// Geocode address using OpenStreetMap Nominatim
-async function geocodeAddress(address: string) {
-  const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}`;
-  const res = await fetch(url);
-  const data = await res.json();
-  if (data && data.length > 0) {
-    return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
-  }
-  return null;
-}
-
-// ✅ Resolve shortened Google Maps URLs via Vercel serverless function
-async function resolveGoogleMapsShortUrl(shortUrl: string) {
-  try {
-    const res = await fetch(`/api/resolve?url=${encodeURIComponent(shortUrl)}`);
-    const data = await res.json();
-    return data.finalUrl || shortUrl;
-  } catch (err) {
-    console.error("Failed to resolve short URL:", err);
-    return shortUrl;
-  }
-}
+import Map, { Marker, Popup, NavigationControl } from "react-map-gl/maplibre";
+import "maplibre-gl/dist/maplibre-gl.css";
 
 interface LandParcelEntryProps {
   onBack: () => void;
   onContinue: (data: { googleMapLink: string; latitude: string; longitude: string }) => void;
 }
 
+// Parser to extract coordinates from Google Maps URL
+async function parseGoogleMapsLink(url: string): Promise<{ lat: number; lng: number } | null> {
+  try {
+    let urlToProcess = url;
+
+    // If it's a shortened URL (goo.gl or maps.app.goo.gl), expand it first
+    if (url.includes('goo.gl') || url.includes('maps.app.goo.gl')) {
+      try {
+        // Use a CORS proxy to expand the shortened URL
+        const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+        const response = await fetch(proxyUrl, {
+          redirect: 'follow'
+        });
+        
+        // Get the final URL after redirects
+        const html = await response.text();
+        
+        // Try to extract coordinates from the HTML content
+        const coordMatch = html.match(/@(-?\d+\.?\d*),(-?\d+\.?\d*)/);
+        if (coordMatch) {
+          return { lat: parseFloat(coordMatch[1]), lng: parseFloat(coordMatch[2]) };
+        }
+        
+        // If we can't extract from HTML, try to get the URL from meta tags
+        const metaMatch = html.match(/content="https:\/\/www\.google\.com\/maps[^"]*@(-?\d+\.?\d*),(-?\d+\.?\d*)"/);
+        if (metaMatch) {
+          return { lat: parseFloat(metaMatch[1]), lng: parseFloat(metaMatch[2]) };
+        }
+      } catch (e) {
+        console.error('Error expanding shortened URL:', e);
+      }
+    }
+
+    // Pattern 1: /@lat,lng,zoom format (most common)
+    const regex1 = /@(-?\d+\.?\d*),(-?\d+\.?\d*)/;
+    const match1 = urlToProcess.match(regex1);
+    if (match1) {
+      return { lat: parseFloat(match1[1]), lng: parseFloat(match1[2]) };
+    }
+
+    // Pattern 2: /place/name/@lat,lng format
+    const regex2 = /\/place\/[^/]+\/@(-?\d+\.?\d*),(-?\d+\.?\d*)/;
+    const match2 = urlToProcess.match(regex2);
+    if (match2) {
+      return { lat: parseFloat(match2[1]), lng: parseFloat(match2[2]) };
+    }
+
+    // Pattern 3: ?q=lat,lng format
+    const regex3 = /[?&]q=(-?\d+\.?\d*),(-?\d+\.?\d*)/;
+    const match3 = urlToProcess.match(regex3);
+    if (match3) {
+      return { lat: parseFloat(match3[1]), lng: parseFloat(match3[2]) };
+    }
+
+    // Pattern 4: /maps/place/lat,lng format
+    const regex4 = /\/maps\/place\/(-?\d+\.?\d*),(-?\d+\.?\d*)/;
+    const match4 = urlToProcess.match(regex4);
+    if (match4) {
+      return { lat: parseFloat(match4[1]), lng: parseFloat(match4[2]) };
+    }
+
+    // Pattern 5: ll=lat,lng format
+    const regex5 = /ll=(-?\d+\.?\d*),(-?\d+\.?\d*)/;
+    const match5 = urlToProcess.match(regex5);
+    if (match5) {
+      return { lat: parseFloat(match5[1]), lng: parseFloat(match5[2]) };
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export function LandParcelEntry({ onBack, onContinue }: LandParcelEntryProps) {
   const [googleMapLink, setGoogleMapLink] = useState("");
   const [latitude, setLatitude] = useState("");
   const [longitude, setLongitude] = useState("");
-  const [isExtracting, setIsExtracting] = useState(false);
+  const [showPopup, setShowPopup] = useState(true);
+  const [linkError, setLinkError] = useState("");
+  const [isExpanding, setIsExpanding] = useState(false);
 
-  const extractCoordinates = async (mapUrl: string) => {
-    setIsExtracting(true);
+  const handleMapLinkChange = async (value: string) => {
+    setGoogleMapLink(value);
+    setLinkError("");
 
-    try {
-      // 1️⃣ Resolve shortened URL via backend
-      if (mapUrl.includes("goo.gl") || mapUrl.includes("maps.app.goo.gl")) {
-        mapUrl = await resolveGoogleMapsShortUrl(mapUrl);
+    if (value.trim()) {
+      // Check if it's a shortened URL
+      if (value.includes('goo.gl') || value.includes('maps.app.goo.gl')) {
+        setIsExpanding(true);
+        setLinkError("Expanding shortened URL...");
       }
 
-      let lat = "";
-      let lng = "";
-
-      // 2️⃣ Extract coordinates from @lat,lng in URL
-      const coordMatch = mapUrl.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
-      if (coordMatch) {
-        lat = coordMatch[1];
-        lng = coordMatch[2];
+      const coords = await parseGoogleMapsLink(value);
+      setIsExpanding(false);
+      
+      if (coords) {
+        setLatitude(coords.lat.toString());
+        setLongitude(coords.lng.toString());
+        setLinkError("");
       } else {
-        // 3️⃣ Fallback: extract address from /place/ or /dir/
-        let address = "";
-        const matchPlace = mapUrl.match(/\/place\/([^/?]+)/);
-        const matchDir = mapUrl.match(/\/dir\/[^/]+\/([^/?]+)/);
-
-        if (matchPlace) address = decodeURIComponent(matchPlace[1].replace(/\+/g, " "));
-        else if (matchDir) address = decodeURIComponent(matchDir[1].replace(/\+/g, " "));
-
-        if (address) {
-          const coords = await geocodeAddress(address);
-          if (coords) {
-            lat = coords.lat.toString();
-            lng = coords.lng.toString();
-          }
+        setLatitude("");
+        setLongitude("");
+        if (value.length > 10) {
+          setLinkError("Could not extract coordinates. Try copying the URL from your browser's address bar instead.");
         }
       }
-
-      setLatitude(lat);
-      setLongitude(lng);
-    } catch (err) {
-      console.error("Failed to extract coordinates:", err);
+    } else {
       setLatitude("");
       setLongitude("");
-    } finally {
-      setIsExtracting(false);
-    }
-  };
-
-  const handleMapLinkChange = (value: string) => {
-    setGoogleMapLink(value);
-    if (value.trim()) extractCoordinates(value);
-    else {
-      setLatitude("");
-      setLongitude("");
+      setIsExpanding(false);
     }
   };
 
@@ -137,7 +151,6 @@ export function LandParcelEntry({ onBack, onContinue }: LandParcelEntryProps) {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
-              {/* Google Maps Link */}
               <div className="space-y-2">
                 <Label htmlFor="map-link" className="text-sm font-medium flex items-center gap-2">
                   <Link className="h-4 w-4" />
@@ -150,48 +163,39 @@ export function LandParcelEntry({ onBack, onContinue }: LandParcelEntryProps) {
                   onChange={(e) => handleMapLinkChange(e.target.value)}
                   className="h-12"
                 />
-                <p className="text-xs text-muted-foreground">
-                  Coordinates will be extracted automatically
-                </p>
+                {linkError ? (
+                  <p className={cn("text-xs", isExpanding ? "text-blue-600" : "text-red-600")}>
+                    {linkError}
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Supports both full URLs and shortened goo.gl links
+                  </p>
+                )}
               </div>
 
-              {/* Coordinates */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="latitude" className="text-sm font-medium">
-                    Latitude
-                  </Label>
+                  <Label htmlFor="latitude" className="text-sm font-medium">Latitude</Label>
                   <Input
                     id="latitude"
                     placeholder="Auto-extracted"
                     value={latitude}
                     onChange={(e) => setLatitude(e.target.value)}
-                    className={cn("h-12", isExtracting && "animate-pulse")}
-                    disabled={isExtracting}
+                    className={cn("h-12")}
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="longitude" className="text-sm font-medium">
-                    Longitude
-                  </Label>
+                  <Label htmlFor="longitude" className="text-sm font-medium">Longitude</Label>
                   <Input
                     id="longitude"
                     placeholder="Auto-extracted"
                     value={longitude}
                     onChange={(e) => setLongitude(e.target.value)}
-                    className={cn("h-12", isExtracting && "animate-pulse")}
-                    disabled={isExtracting}
+                    className={cn("h-12")}
                   />
                 </div>
               </div>
-
-              {/* Status */}
-              {isExtracting && (
-                <div className="flex items-center gap-2 text-sm text-primary">
-                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-                  Extracting coordinates...
-                </div>
-              )}
 
               {isValid && (
                 <div className="flex items-center gap-2 text-sm text-success">
@@ -200,7 +204,6 @@ export function LandParcelEntry({ onBack, onContinue }: LandParcelEntryProps) {
                 </div>
               )}
 
-              {/* Continue Button */}
               <Button
                 onClick={handleContinue}
                 disabled={!isValid}
@@ -218,24 +221,36 @@ export function LandParcelEntry({ onBack, onContinue }: LandParcelEntryProps) {
             </CardHeader>
             <CardContent className="h-96">
               {isValid ? (
-                <MapContainer
-                  center={[parseFloat(latitude), parseFloat(longitude)]}
-                  zoom={15}
+                <Map
+                  initialViewState={{
+                    latitude: parseFloat(latitude),
+                    longitude: parseFloat(longitude),
+                    zoom: 14,
+                  }}
                   style={{ width: "100%", height: "100%" }}
-                  scrollWheelZoom={false}
+                  mapStyle="https://basemaps.cartocdn.com/gl/positron-gl-style/style.json"
                 >
-                  <TileLayer
-                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                    attribution='&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a>'
-                  />
+                  <NavigationControl position="top-right" />
                   <Marker
-                    position={[parseFloat(latitude), parseFloat(longitude)]}
-                    icon={markerIcon}
-                  >
-                    <Popup>Main Land Parcel</Popup>
-                  </Marker>
-                  <FlyToMarker lat={parseFloat(latitude)} lng={parseFloat(longitude)} />
-                </MapContainer>
+                    latitude={parseFloat(latitude)}
+                    longitude={parseFloat(longitude)}
+                    color="red"
+                    onClick={(e) => {
+                      e.originalEvent.stopPropagation();
+                      setShowPopup(true);
+                    }}
+                  />
+                  {showPopup && (
+                    <Popup
+                      latitude={parseFloat(latitude)}
+                      longitude={parseFloat(longitude)}
+                      anchor="top"
+                      onClose={() => setShowPopup(false)}
+                    >
+                      Main Land Parcel
+                    </Popup>
+                  )}
+                </Map>
               ) : (
                 <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
                   <MapPin className="h-12 w-12 mb-2 opacity-50" />
