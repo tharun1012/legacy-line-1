@@ -19,12 +19,24 @@ import {
   Loader2,
   MapPin,
   TrendingUp,
-  Award
+  Award,
+  AlertCircle,
+  ThumbsUp,
+  ThumbsDown,
+  Lightbulb,
+  Shield,
+  Brain
 } from "lucide-react";
 import { supabase } from "@/Supabase/supabaseclient";
 import { useEffect, useState } from "react";
 import Map, { Marker, NavigationControl } from "react-map-gl/maplibre";
 import "maplibre-gl/dist/maplibre-gl.css";
+
+// Import the Free Risk Analysis service (No API keys required!)
+import { FreeRiskAnalysisService, LandAnalysisResult, LocationData } from './GoogleEarthAIService';
+
+// Create service instance
+const googleEarthAIService = new FreeRiskAnalysisService();
 
 interface DetailedLandParcelAnalysisProps {
   parcelId: string;
@@ -49,6 +61,11 @@ export function DetailedLandParcelAnalysis({ parcelId, onBack }: DetailedLandPar
   const [parcelData, setParcelData] = useState<LandParcel | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  // Risk Analysis state
+  const [riskAnalysis, setRiskAnalysis] = useState<LandAnalysisResult | null>(null);
+  const [analysisLoading, setAnalysisLoading] = useState(false);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
 
   useEffect(() => {
     if (parcelId) {
@@ -58,6 +75,41 @@ export function DetailedLandParcelAnalysis({ parcelId, onBack }: DetailedLandPar
       setLoading(false);
     }
   }, [parcelId]);
+
+  // Fetch Risk Analysis when parcel data is loaded
+  useEffect(() => {
+    if (parcelData && parcelData.latitude && parcelData.longitude) {
+      fetchRiskAnalysis();
+    }
+  }, [parcelData]);
+
+  const fetchRiskAnalysis = async () => {
+    if (!parcelData) return;
+    
+    setAnalysisLoading(true);
+    setAnalysisError(null);
+    
+    try {
+      const pricePerSqftStr = String(parcelData.price_per_sqft || '0');
+      const pricePerSqft = parseFloat(pricePerSqftStr.replace(/[^0-9.-]/g, '') || '0');
+      
+      const locationData: LocationData = {
+        latitude: parcelData.latitude || 13.1986,
+        longitude: parcelData.longitude || 77.7101,
+        locationName: parcelData.location || 'Bangalore',
+        area: parcelData.total_area,
+        pricePerSqft: pricePerSqft
+      };
+      
+      const result = await googleEarthAIService.analyzeLandParcel(locationData);
+      setRiskAnalysis(result);
+    } catch (err: any) {
+      console.error('Error fetching risk analysis:', err);
+      setAnalysisError(err.message || 'Failed to load risk analysis');
+    } finally {
+      setAnalysisLoading(false);
+    }
+  };
 
   const fetchParcelData = async () => {
     try {
@@ -364,7 +416,7 @@ export function DetailedLandParcelAnalysis({ parcelId, onBack }: DetailedLandPar
             </Badge>
           </div>
 
-          {/* Score Overview - Improved Design */}
+          {/* Score Overview */}
           <Card className="shadow-xl border-0 bg-white">
             <CardContent className="p-6">
               <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
@@ -425,6 +477,114 @@ export function DetailedLandParcelAnalysis({ parcelId, onBack }: DetailedLandPar
             </CardContent>
           </Card>
         </div>
+
+        {/* AI-Powered Risk Analysis Section */}
+        <Card className="mb-6 shadow-lg border-0 bg-gradient-to-br from-indigo-50 to-blue-50">
+          <CardHeader className="pb-3 bg-gradient-to-r from-indigo-600 to-blue-600 text-white rounded-t-lg">
+            <CardTitle className="text-xl flex items-center gap-2">
+              <Brain className="h-6 w-6" />
+              AI-Powered Risk Analysis
+              <Badge className="ml-auto bg-white text-indigo-600">
+                Powered by Google Earth AI
+              </Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-6">
+            {analysisLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <div className="text-center">
+                  <Loader2 className="h-10 w-10 animate-spin text-indigo-600 mx-auto mb-3" />
+                  <p className="text-sm text-gray-600">Analyzing location with AI...</p>
+                </div>
+              </div>
+            ) : analysisError ? (
+              <div className="text-center py-8">
+                <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-3" />
+                <p className="text-red-600 mb-4">{analysisError}</p>
+                <Button onClick={fetchRiskAnalysis} variant="outline">
+                  Retry Analysis
+                </Button>
+              </div>
+            ) : riskAnalysis ? (
+              <div className="grid lg:grid-cols-3 gap-6">
+                {/* Reasons to Buy */}
+                <div className="bg-white rounded-lg p-5 shadow-md border-2 border-green-200">
+                  <div className="flex items-center gap-2 mb-4">
+                    <ThumbsUp className="h-5 w-5 text-green-600" />
+                    <h3 className="font-bold text-lg text-green-900">Reasons to Buy</h3>
+                  </div>
+                  <ul className="space-y-3">
+                    {riskAnalysis.pros.map((pro, idx) => (
+                      <li key={idx} className="flex gap-2 text-sm">
+                        <CheckCircle className="h-4 w-4 text-green-600 flex-shrink-0 mt-0.5" />
+                        <span className="text-gray-700">{pro}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                {/* Risks & Concerns */}
+                <div className="bg-white rounded-lg p-5 shadow-md border-2 border-red-200">
+                  <div className="flex items-center gap-2 mb-4">
+                    <ThumbsDown className="h-5 w-5 text-red-600" />
+                    <h3 className="font-bold text-lg text-red-900">Risks & Concerns</h3>
+                  </div>
+                  <ul className="space-y-3">
+                    {riskAnalysis.cons.map((con, idx) => (
+                      <li key={idx} className="flex gap-2 text-sm">
+                        <AlertTriangle className="h-4 w-4 text-red-600 flex-shrink-0 mt-0.5" />
+                        <span className="text-gray-700">{con}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                {/* Recommendations */}
+                <div className="bg-white rounded-lg p-5 shadow-md border-2 border-blue-200">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Lightbulb className="h-5 w-5 text-blue-600" />
+                    <h3 className="font-bold text-lg text-blue-900">Recommendations</h3>
+                  </div>
+                  <ul className="space-y-3 mb-4">
+                    {riskAnalysis.recommendations.map((rec, idx) => (
+                      <li key={idx} className="flex gap-2 text-sm">
+                        <CheckCircle className="h-4 w-4 text-blue-600 flex-shrink-0 mt-0.5" />
+                        <span className="text-gray-700">{rec}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  
+                  {/* Risk Level & Confidence */}
+                  <div className="space-y-3 pt-4 border-t">
+                    <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                      <div className="flex items-center gap-2">
+                        <Shield className="h-4 w-4 text-gray-600" />
+                        <span className="text-sm font-semibold">Risk Level</span>
+                      </div>
+                      <Badge className={`${
+                        riskAnalysis.riskLevel === 'Low' ? 'bg-green-500' :
+                        riskAnalysis.riskLevel === 'Medium' ? 'bg-yellow-500' :
+                        'bg-red-500'
+                      } text-white`}>
+                        {riskAnalysis.riskLevel}
+                      </Badge>
+                    </div>
+                    
+                    <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                      <div className="flex items-center gap-2">
+                        <Brain className="h-4 w-4 text-gray-600" />
+                        <span className="text-sm font-semibold">AI Confidence</span>
+                      </div>
+                      <span className="text-lg font-bold text-indigo-600">
+                        {riskAnalysis.confidence}%
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
 
         <div className="grid lg:grid-cols-2 gap-6">
           {/* Left Column */}
@@ -487,16 +647,15 @@ export function DetailedLandParcelAnalysis({ parcelId, onBack }: DetailedLandPar
                   </div>
                 </div>
                 
-               
-{parcelData.url && (
-  <Button 
-    variant="outline" 
-    className="w-full mt-4 hover:bg-primary hover:text-white transition-colors"
-    onClick={() => window.open(parcelData.url, '_blank')}
-  >
-    View Original Listing
-  </Button>
-)} 
+                {parcelData.url && (
+                  <Button 
+                    variant="outline" 
+                    className="w-full mt-4 hover:bg-primary hover:text-white transition-colors"
+                    onClick={() => window.open(parcelData.url, '_blank')}
+                  >
+                    View Original Listing
+                  </Button>
+                )}
               </CardContent>
             </Card>
 
